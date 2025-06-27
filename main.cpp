@@ -112,6 +112,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	//================================================================
 	// 変数の宣言と初期化
 	//================================================================
+
 	const int kWindowWidth = 1280;
 	const int kWindowHeight = 720;
 
