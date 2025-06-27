@@ -5,7 +5,7 @@
 #include <math.h>
 #include <imgui.h>
 #include <algorithm>
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_00";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_01";
 
 //================================================================
 // 構造体の宣言
@@ -27,24 +27,6 @@ struct Sphere
 {
 	Vector3 center;
 	float radius;
-};
-
-struct Spring
-{
-	Vector3 anchor; // アンカー(固定された端の位置)
-	float natualLength; // 自然長
-	float stiffness; // 剛性(バネ定数k)
-	float dampingCoefficient; // 減衰係数
-};
-
-struct Ball
-{
-	Vector3 position; // 位置
-	Vector3 velocity; // 速度
-	Vector3 acceleration; // 加速度
-	float mass; // 質量
-	float radius; // 半径
-	unsigned int color; // 色
 };
 
 //================================================================
@@ -90,14 +72,14 @@ float Length(const Vector3& v);
 // 正規化の関数
 Vector3 Normalize(const Vector3& v);
 
-// バネの挙動
-void UpdateSpring(Spring& spring, Ball& ball, float deltaTime);
-
 // グリットの描画
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
 // 球の描画
 void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
+
+// 等速円運動
+Vector3 UniformCircularMotion(Sphere& sphere, float angularVelocity, float& angle, float deltaTime);
 
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -120,26 +102,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
 
-	// バネ
-	Spring spring{};
-	spring.anchor = { 0.0f, 0.0f, 0.0f }; 
-	spring.natualLength = 1.0f;
-	spring.stiffness = 100.0f;
-	spring.dampingCoefficient = 2.0f;
-	bool isSpring = false;
-
 	// ボール
-	Ball ball{};
-	ball.position = { 1.2f,0.0f,0.0f };
-	ball.mass = 2.0f;
-	ball.radius = 0.05f;
-	ball.color = BLUE;
+	Sphere sphere{};
+	sphere.center = { 0.0f, -1.0f, 0.0f };
+	sphere.radius = 0.08f;
+	bool isRotate = false;
 
 	// デルタタイム
 	float deltaTime = 1.0f / 60.0f;
 
-	// 描画用変数
-	Sphere sphere{};
+	// 等速円運動の変数
+	float angularVelocity = 3.14f;
+	float angle = 0.0f;
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -165,15 +139,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, float(kWindowWidth), float(kWindowHeight), 0.0f, 1.0f);
 
 		//================================================================
-		// バネの計算処理
+		// 等速円運動の計算処理
 		//================================================================
 
-		sphere.center = ball.position;
-		sphere.radius = ball.radius;
-
-		if (isSpring)
+		if (isRotate)
 		{
-			UpdateSpring(spring, ball, deltaTime);
+			sphere.center = UniformCircularMotion(sphere, angularVelocity, angle, deltaTime);
 		}
 
 		//================================================================
@@ -181,7 +152,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		//================================================================
 
 		ImGui::Begin("Window");
-		ImGui::Checkbox("Start", &isSpring);
+		ImGui::Checkbox("isRotate", &isRotate);
 		ImGui::End();
 
 		///
@@ -197,13 +168,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		//================================================================
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
-		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, ball.color);
-		Vector3 ndcPos = Transform(ball.position, worldViewProjectionMatrix);
-		Vector3 screenPos = Transform(ndcPos, viewportMatrix);
-		Vector3 anchorNdc = Transform(spring.anchor, worldViewProjectionMatrix);
-		Vector3 anchorScreenPos = Transform(anchorNdc, viewportMatrix);
-		Novice::DrawLine(static_cast<int>(anchorScreenPos.x), static_cast<int>(anchorScreenPos.y),
-			static_cast<int>(screenPos.x), static_cast<int>(screenPos.y), BLACK);
+		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, WHITE);
 
 		///
 		/// ↑描画処理ここまで
@@ -292,6 +257,19 @@ void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix
 			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(cScreen.x), int(cScreen.y), color);
 		}
 	}
+}
+
+Vector3 UniformCircularMotion(Sphere& sphere, float angularVelocity,float& angle, float deltaTime)
+{
+	Vector3 ret;
+	// 角度を更新する
+	angle += angularVelocity * deltaTime;
+	// 座標を更新する
+	ret.x = sphere.center.x + std::cos(angle) * sphere.radius;
+	ret.y = sphere.center.y + std::sin(angle) * sphere.radius;
+	ret.z = sphere.center.z;
+
+	return ret;
 }
 
 Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearClip, float farClip)
@@ -484,26 +462,7 @@ Vector3 Normalize(const Vector3& v)
 	return ret;
 }
 
-void UpdateSpring(Spring& spring, Ball& ball, float deltaTime)
-{
-	Vector3 diff = Subtract(ball.position, spring.anchor);
-	float length = Length(diff);
-	if (length != 0.0f)
-	{
-		Vector3 direction = Normalize(diff);
-		Vector3 restPosition = Add(spring.anchor, Vector3Multiply(spring.natualLength,direction));
-		Vector3 displacement = Vector3Multiply(length, Subtract(ball.position, restPosition));
-		Vector3 restoringForce = Vector3Multiply(-spring.stiffness, displacement);
-		Vector3 dampingForce = Vector3Multiply(-spring.dampingCoefficient, ball.velocity);
-		Vector3 force = Add(restoringForce, dampingForce);
-		ball.acceleration = Divide(force, ball.mass);
-	}
 
-	ball.velocity = Add(ball.velocity, Vector3Multiply(deltaTime, ball.acceleration));
-	ball.position = Add(ball.position, Vector3Multiply(deltaTime, ball.velocity));
-
-	
-}
 
 Matrix4x4 Inverse(const Matrix4x4& m)
 {
