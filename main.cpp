@@ -5,7 +5,7 @@
 #include <math.h>
 #include <imgui.h>
 #include <algorithm>
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_02";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_03";
 
 //================================================================
 // 構造体の宣言
@@ -29,13 +29,13 @@ struct Sphere
 	float radius;
 };
 
-struct Pendulum
+struct ConicalPendulum
 {
 	Vector3 anchor;
 	float length;
+	float halfApexAngle;
 	float angle;
 	float angularVelocity;
-	float angularAcceleration;
 };
 
 //================================================================
@@ -87,8 +87,8 @@ void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewp
 // 球の描画
 void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
 
-// 振り子の計算
-Vector3 PendulumUpdate(Pendulum& pendulum, Sphere& sphere,const float deltaTime);
+// 円錐振り子の計算
+Vector3 ConicalPendulumUpdate(ConicalPendulum& conicalPendulum,Sphere& sphere, const float deltaTime);
 
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -115,19 +115,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	float deltaTime = 1.0f / 60.0f;
 
 	// 振り子の変数
-	Pendulum pendulum{};
-	pendulum.anchor = { 0.0f, 1.0f, 0.0f };
-	pendulum.length = 0.8f;
-	pendulum.angle = 0.7f;
-	pendulum.angularVelocity = 0.0f;
-	pendulum.angularAcceleration = 0.0f;
+	ConicalPendulum conicalPendulum{};
+	conicalPendulum.anchor = { 0.0f, 1.0f, 0.0f };
+	conicalPendulum.length = 0.8f;
+	conicalPendulum.halfApexAngle = 0.7f;
+	conicalPendulum.angle = 0.0f;
+	conicalPendulum.angularVelocity = 0.0f;
 
 	// ボール
 	Sphere sphere{};
 	sphere.center = { 0.0f, -1.0f, 0.0f };
 	sphere.radius = 0.08f;
 	bool isStart = false;
-	sphere.center = PendulumUpdate(pendulum, sphere, deltaTime);
+	sphere.center = ConicalPendulumUpdate(conicalPendulum, sphere, deltaTime);
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -158,7 +158,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 		if (isStart)
 		{
-			sphere.center = PendulumUpdate(pendulum, sphere, deltaTime);
+			sphere.center = ConicalPendulumUpdate(conicalPendulum, sphere, deltaTime);
 		}
 		
 		//================================================================
@@ -187,7 +187,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, WHITE);
 		Vector3 ndcPos = Transform(sphere.center, worldViewProjectionMatrix);
 		Vector3 screenPos = Transform(ndcPos, viewportMatrix);
-		Vector3 anchorNdc = Transform(pendulum.anchor, worldViewProjectionMatrix);
+		Vector3 anchorNdc = Transform(conicalPendulum.anchor, worldViewProjectionMatrix);
 		Vector3 anchorScreenPos = Transform(anchorNdc, viewportMatrix);
 		Novice::DrawLine(static_cast<int>(anchorScreenPos.x), static_cast<int>(anchorScreenPos.y),
 			static_cast<int>(screenPos.x), static_cast<int>(screenPos.y), WHITE);
@@ -281,17 +281,18 @@ void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix
 	}
 }
 
-Vector3 PendulumUpdate(Pendulum& pendulum, Sphere& sphere,const float deltaTime)
+Vector3 ConicalPendulumUpdate(ConicalPendulum& conicalPendulum, Sphere& sphere, const float deltaTime)
 {
 	Vector3 ret;
 
-	pendulum.angularAcceleration = -(9.8f / pendulum.length) * std::sin(pendulum.angle);
-	pendulum.angularVelocity += pendulum.angularAcceleration * deltaTime;
-	pendulum.angle += pendulum.angularVelocity * deltaTime;
+	conicalPendulum.angularVelocity = std::sqrt(9.8f / (conicalPendulum.length * std::cos(conicalPendulum.halfApexAngle)));
+	conicalPendulum.angle += conicalPendulum.angularVelocity * deltaTime;
 
-	sphere.center.x = pendulum.anchor.x + std::sin(pendulum.angle) * pendulum.length;
-	sphere.center.y = pendulum.anchor.y - std::cos(pendulum.angle) * pendulum.length;
-	sphere.center.z = pendulum.anchor.z;
+	float radius = std::sin(conicalPendulum.halfApexAngle) * conicalPendulum.length;
+	float height = std::cos(conicalPendulum.halfApexAngle) * conicalPendulum.length;
+	sphere.center.x = conicalPendulum.anchor.x + std::cos(conicalPendulum.angle) * radius;
+	sphere.center.y = conicalPendulum.anchor.y - height;
+	sphere.center.z = conicalPendulum.anchor.z - std::sin(conicalPendulum.angle) * radius;
 
 	ret = sphere.center;
 	return ret;
