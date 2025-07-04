@@ -5,7 +5,7 @@
 #include <math.h>
 #include <imgui.h>
 #include <algorithm>
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_01";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_02";
 
 //================================================================
 // 構造体の宣言
@@ -27,6 +27,15 @@ struct Sphere
 {
 	Vector3 center;
 	float radius;
+};
+
+struct Pendulum
+{
+	Vector3 anchor;
+	float length;
+	float angle;
+	float angularVelocity;
+	float angularAcceleration;
 };
 
 //================================================================
@@ -78,8 +87,8 @@ void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewp
 // 球の描画
 void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
 
-// 等速円運動
-Vector3 UniformCircularMotion(Sphere& sphere, float angularVelocity, float& angle, float deltaTime);
+// 振り子の計算
+Vector3 PendulumUpdate(Pendulum& pendulum, Sphere& sphere,const float deltaTime);
 
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -102,18 +111,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
 
+	// デルタタイム
+	float deltaTime = 1.0f / 60.0f;
+
+	// 振り子の変数
+	Pendulum pendulum{};
+	pendulum.anchor = { 0.0f, 1.0f, 0.0f };
+	pendulum.length = 0.8f;
+	pendulum.angle = 0.7f;
+	pendulum.angularVelocity = 0.0f;
+	pendulum.angularAcceleration = 0.0f;
+
 	// ボール
 	Sphere sphere{};
 	sphere.center = { 0.0f, -1.0f, 0.0f };
 	sphere.radius = 0.08f;
-	bool isRotate = false;
-
-	// デルタタイム
-	float deltaTime = 1.0f / 60.0f;
-
-	// 等速円運動の変数
-	float angularVelocity = 3.14f;
-	float angle = 0.0f;
+	bool isStart = false;
+	sphere.center = PendulumUpdate(pendulum, sphere, deltaTime);
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -139,20 +153,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, float(kWindowWidth), float(kWindowHeight), 0.0f, 1.0f);
 
 		//================================================================
-		// 等速円運動の計算処理
+		// 振り子の計算処理
 		//================================================================
 
-		if (isRotate)
+		if (isStart)
 		{
-			sphere.center = UniformCircularMotion(sphere, angularVelocity, angle, deltaTime);
+			sphere.center = PendulumUpdate(pendulum, sphere, deltaTime);
 		}
-
+		
 		//================================================================
 		// ImGuiの処理
 		//================================================================
 
 		ImGui::Begin("Window");
-		ImGui::Checkbox("isRotate", &isRotate);
+		ImGui::Checkbox("isStart", &isStart);
 		ImGui::End();
 
 		///
@@ -169,6 +183,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
 		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, WHITE);
+		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
+		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, WHITE);
+		Vector3 ndcPos = Transform(sphere.center, worldViewProjectionMatrix);
+		Vector3 screenPos = Transform(ndcPos, viewportMatrix);
+		Vector3 anchorNdc = Transform(pendulum.anchor, worldViewProjectionMatrix);
+		Vector3 anchorScreenPos = Transform(anchorNdc, viewportMatrix);
+		Novice::DrawLine(static_cast<int>(anchorScreenPos.x), static_cast<int>(anchorScreenPos.y),
+			static_cast<int>(screenPos.x), static_cast<int>(screenPos.y), WHITE);
 
 		///
 		/// ↑描画処理ここまで
@@ -259,16 +281,19 @@ void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix
 	}
 }
 
-Vector3 UniformCircularMotion(Sphere& sphere, float angularVelocity,float& angle, float deltaTime)
+Vector3 PendulumUpdate(Pendulum& pendulum, Sphere& sphere,const float deltaTime)
 {
 	Vector3 ret;
-	// 角度を更新する
-	angle += angularVelocity * deltaTime;
-	// 座標を更新する
-	ret.x = sphere.center.x + std::cos(angle) * sphere.radius;
-	ret.y = sphere.center.y + std::sin(angle) * sphere.radius;
-	ret.z = sphere.center.z;
 
+	pendulum.angularAcceleration = -(9.8f / pendulum.length) * std::sin(pendulum.angle);
+	pendulum.angularVelocity += pendulum.angularAcceleration * deltaTime;
+	pendulum.angle += pendulum.angularVelocity * deltaTime;
+
+	sphere.center.x = pendulum.anchor.x + std::sin(pendulum.angle) * pendulum.length;
+	sphere.center.y = pendulum.anchor.y - std::cos(pendulum.angle) * pendulum.length;
+	sphere.center.z = pendulum.anchor.z;
+
+	ret = sphere.center;
 	return ret;
 }
 
