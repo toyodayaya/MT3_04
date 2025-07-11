@@ -5,7 +5,7 @@
 #include <math.h>
 #include <imgui.h>
 #include <algorithm>
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_00";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_04_04";
 
 //================================================================
 // 構造体の宣言
@@ -29,14 +29,6 @@ struct Sphere
 	float radius;
 };
 
-struct Spring
-{
-	Vector3 anchor; // アンカー(固定された端の位置)
-	float natualLength; // 自然長
-	float stiffness; // 剛性(バネ定数k)
-	float dampingCoefficient; // 減衰係数
-};
-
 struct Ball
 {
 	Vector3 position; // 位置
@@ -45,6 +37,24 @@ struct Ball
 	float mass; // 質量
 	float radius; // 半径
 	unsigned int color; // 色
+};
+
+struct Plane
+{
+	Vector3 normal;
+	float distance;
+};
+
+struct Segment
+{
+	Vector3 origin;
+	Vector3 diff;
+};
+
+struct Capsule
+{
+	Segment segment;
+	float radius;
 };
 
 //================================================================
@@ -90,14 +100,38 @@ float Length(const Vector3& v);
 // 正規化の関数
 Vector3 Normalize(const Vector3& v);
 
-// バネの挙動
-void UpdateSpring(Spring& spring, Ball& ball, float deltaTime);
+// 内積の関数
+float Dot(const Vector3& v1, const Vector3& v2);
+
+// クロス積
+Vector3 Cross(const Vector3& v1, const Vector3& v2);
+
+// 法線と垂直なベクトルを求める
+Vector3 Perpendicular(const Vector3& vector);
 
 // グリットの描画
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
+// 平面の描画
+void DrawPlane(const Plane& plane, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
+
 // 球の描画
 void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
+
+// 当たり判定
+bool isCollision(const Ball& ball, const Plane& plane);
+
+// 正射影ベクトルの関数
+Vector3 Project(const Vector3& v1, const Vector3& v2);
+
+// 反射ベクトルを求める関数
+Vector3 Reflect(const Vector3& input, const Vector3& normal);
+
+// 反発関数
+Vector3 Bounce(Ball& ball, const Plane& plane,const float deltaTime);
+
+// カプセル判定
+bool IsCollisionCapsule(const Ball& ball,const Plane& plane,const float deltaTime);
 
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -120,20 +154,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
 
-	// バネ
-	Spring spring{};
-	spring.anchor = { 0.0f, 0.0f, 0.0f }; 
-	spring.natualLength = 1.0f;
-	spring.stiffness = 100.0f;
-	spring.dampingCoefficient = 2.0f;
-	bool isSpring = false;
-
 	// ボール
 	Ball ball{};
-	ball.position = { 1.2f,0.0f,0.0f };
+	ball.position = { 0.8f,1.2f,0.3f };
+	ball.acceleration = { 0.0f,-9.8f,0.0f };
+	ball.velocity = { 0.0f,0.0f,0.0f };
 	ball.mass = 2.0f;
 	ball.radius = 0.05f;
-	ball.color = BLUE;
+	ball.color = WHITE;
+	bool isStart = false;
+
+	// 平面
+	Plane plane;
+	plane.normal = Normalize({ -0.2f,0.9f,-0.3f });
+	plane.distance = 0.0f;
 
 	// デルタタイム
 	float deltaTime = 1.0f / 60.0f;
@@ -165,25 +199,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, float(kWindowWidth), float(kWindowHeight), 0.0f, 1.0f);
 
 		//================================================================
-		// バネの計算処理
+		// 反発の計算処理
 		//================================================================
+
+		if (isStart)
+		{
+			ball.position = Bounce(ball, plane, deltaTime);
+		}
 
 		sphere.center = ball.position;
 		sphere.radius = ball.radius;
-
-		if (isSpring)
-		{
-			UpdateSpring(spring, ball, deltaTime);
-		}
 
 		//================================================================
 		// ImGuiの処理
 		//================================================================
 
 		ImGui::Begin("Window");
-		ImGui::Checkbox("Start", &isSpring);
+		ImGui::Checkbox("isStart", &isStart);
+		ImGui::Text("Ball Position: (%.2f, %.2f, %.2f)", ball.position.x, ball.position.y, ball.position.z);
 		ImGui::End();
 
+		
 		///
 		/// ↑更新処理ここまで
 		///
@@ -197,13 +233,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		//================================================================
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
+		DrawPlane(plane, worldViewProjectionMatrix, viewportMatrix, WHITE);
 		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, ball.color);
-		Vector3 ndcPos = Transform(ball.position, worldViewProjectionMatrix);
-		Vector3 screenPos = Transform(ndcPos, viewportMatrix);
-		Vector3 anchorNdc = Transform(spring.anchor, worldViewProjectionMatrix);
-		Vector3 anchorScreenPos = Transform(anchorNdc, viewportMatrix);
-		Novice::DrawLine(static_cast<int>(anchorScreenPos.x), static_cast<int>(anchorScreenPos.y),
-			static_cast<int>(screenPos.x), static_cast<int>(screenPos.y), BLACK);
+		
 
 		///
 		/// ↑描画処理ここまで
@@ -292,6 +324,150 @@ void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix
 			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(cScreen.x), int(cScreen.y), color);
 		}
 	}
+}
+
+void DrawPlane(const Plane& plane, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
+{
+	Vector3 center = Vector3Multiply(plane.distance, plane.normal);
+	Vector3 perpendiculars[4];
+	perpendiculars[0] = Normalize(Perpendicular(plane.normal));
+	perpendiculars[1] = { -perpendiculars[0].x,-perpendiculars[0].y,-perpendiculars[0].z };
+	perpendiculars[2] = Cross(plane.normal, perpendiculars[0]);
+	perpendiculars[3] = { -perpendiculars[2].x,-perpendiculars[2].y,-perpendiculars[2].z };
+
+	Vector3 points[4];
+	for (int index = 0; index < 4; ++index)
+	{
+		Vector3 extend = Vector3Multiply(2.0f, perpendiculars[index]);
+		Vector3 point = Add(center, extend);
+		points[index] = Transform(Transform(point, worldViewProjectionMatrix), viewportMatrix);
+	}
+
+	Novice::DrawLine(int(points[0].x), int(points[0].y), int(points[2].x), int(points[2].y), color);
+	Novice::DrawLine(int(points[1].x), int(points[1].y), int(points[2].x), int(points[2].y), color);
+	Novice::DrawLine(int(points[1].x), int(points[1].y), int(points[3].x), int(points[3].y), color);
+	Novice::DrawLine(int(points[3].x), int(points[3].y), int(points[0].x), int(points[0].y), color);
+}
+
+Vector3 Perpendicular(const Vector3& vector)
+{
+	if (vector.x != 0.0f || vector.y != 0.0f)
+	{
+		return { -vector.y,vector.x,0.0f };
+	}
+
+	return { 0.0f,-vector.z,vector.y };
+}
+
+Vector3 Cross(const Vector3& v1, const Vector3& v2)
+{
+	Vector3 ret;
+	ret = { (v1.y * v2.z) - (v1.z * v2.y), (v1.z * v2.x) - (v1.x * v2.z), (v1.x * v2.y) - (v1.y * v2.x) };
+	return ret;
+}
+
+bool isCollision(const Ball& ball, const Plane& plane)
+{
+	float k = Dot(plane.normal, ball.position) - plane.distance;
+	k = fabs(k);
+
+	if (k <= ball.radius)
+	{
+		return true;
+	}
+
+	return false;
+}
+
+Vector3 Reflect(const Vector3& input, const Vector3& normal)
+{
+	Vector3 ret;
+	ret.x = input.x - ( 2.0f * (input.x * normal.x) * normal.x);
+	ret.y = input.y - ( 2.0f * (input.y * normal.y) * normal.y);
+	ret.x = input.z - ( 2.0f * (input.z * normal.z) * normal.z);
+
+	return ret;
+	
+}
+
+Vector3 Bounce(Ball& ball, const Plane& plane,const float deltaTime)
+{
+	Vector3 ret;
+	float e = 0.8f; // 反発係数
+
+	ball.velocity = Add(ball.velocity, Vector3Multiply(deltaTime,ball.acceleration));
+	ball.position = Add(ball.position, Vector3Multiply(deltaTime, ball.velocity));
+
+	if (isCollision(ball, plane))
+	{
+		if(IsCollisionCapsule(ball, plane, deltaTime))
+		{
+			// カプセルと平面の衝突判定がtrueなら、ボールの位置を修正
+			float penetration = ball.radius - (Dot(plane.normal, ball.position) - plane.distance);
+			if (penetration > 0.0f)
+			{
+				ball.position = Add(ball.position, Vector3Multiply(penetration, plane.normal));
+			}
+		}
+
+		Vector3 reflected = Reflect(ball.velocity, plane.normal);
+		Vector3 projectToNormal = Project(ball.velocity, plane.normal);
+		Vector3 movingDirection = Subtract(reflected, projectToNormal);
+		ball.velocity = Add(Vector3Multiply(e, projectToNormal), movingDirection);
+
+		// 吹っ飛びすぎた場合は制限
+		const float maxSpeed = 100.0f;
+		if (Length(ball.velocity) > maxSpeed)
+		{
+			ball.velocity = Vector3Multiply(maxSpeed / Length(ball.velocity), ball.velocity);
+		}
+	}
+
+	ret = ball.position;
+	return ret;
+}
+
+bool IsCollisionCapsule(const Ball& ball,const Plane& plane,const float deltaTime)
+{
+	// カプセル判定に使う変数の定義
+	Capsule capsule;
+	capsule.segment.origin = ball.position;
+	capsule.segment.diff = Add(ball.position, Vector3Multiply(deltaTime, ball.velocity));
+
+	// カプセル判定の計算
+	Vector3 d = Vector3Multiply(-1.0f, plane.normal);
+	Vector3 ba = Subtract(capsule.segment.diff, capsule.segment.origin);
+	// baを正規化
+	Vector3 e = Normalize(ba);
+
+	if (fabsf(Dot(plane.normal, ba)) < 1e-6f)
+	{
+		if (fabsf(Dot(plane.normal, capsule.segment.origin) - plane.distance) <= ball.radius)
+		{
+			return true;
+		}
+		if (fabsf(Dot(plane.normal, capsule.segment.diff) - plane.distance) <= ball.radius)
+		{
+			return true;
+		}
+		return false;
+	}
+	// tの値を求める
+	float t = (plane.distance - Dot(plane.normal, capsule.segment.origin)) / Dot(plane.normal, ba);
+	// tを0~1の範囲に収める
+	t = std::clamp(t, 0.0f, 1.0f);
+	// 線形補間
+	Vector3 f = Add(Vector3Multiply((1.0f - t), capsule.segment.origin), Vector3Multiply(t, capsule.segment.diff));
+	// 距離を求める
+	float distance = fabsf(Dot(plane.normal, f) - plane.distance);
+
+	// 衝突判定
+	if (distance <= ball.radius)
+	{
+		return true;
+	}
+
+	return false;
 }
 
 Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearClip, float farClip)
@@ -484,25 +660,23 @@ Vector3 Normalize(const Vector3& v)
 	return ret;
 }
 
-void UpdateSpring(Spring& spring, Ball& ball, float deltaTime)
+Vector3 Project(const Vector3& v1, const Vector3& v2)
 {
-	Vector3 diff = Subtract(ball.position, spring.anchor);
-	float length = Length(diff);
-	if (length != 0.0f)
-	{
-		Vector3 direction = Normalize(diff);
-		Vector3 restPosition = Add(spring.anchor, Vector3Multiply(spring.natualLength,direction));
-		Vector3 displacement = Vector3Multiply(length, Subtract(ball.position, restPosition));
-		Vector3 restoringForce = Vector3Multiply(-spring.stiffness, displacement);
-		Vector3 dampingForce = Vector3Multiply(-spring.dampingCoefficient, ball.velocity);
-		Vector3 force = Add(restoringForce, dampingForce);
-		ball.acceleration = Divide(force, ball.mass);
-	}
+	Vector3 ret;
+	float dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+	float length = v2.x * v2.x + v2.y * v2.y + v2.z * v2.z;
+	float scale = dot / length;
+	ret.x = v2.x * scale;
+	ret.y = v2.y * scale;
+	ret.z = v2.z * scale;
+	return ret;
+}
 
-	ball.velocity = Add(ball.velocity, Vector3Multiply(deltaTime, ball.acceleration));
-	ball.position = Add(ball.position, Vector3Multiply(deltaTime, ball.velocity));
-
-	
+float Dot(const Vector3& v1, const Vector3& v2)
+{
+	float ret;
+	ret = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+	return ret;
 }
 
 Matrix4x4 Inverse(const Matrix4x4& m)
